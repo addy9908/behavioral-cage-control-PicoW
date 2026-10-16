@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Behavioral Cage Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f9; }
+        h1 { color: #333; display: flex; justify-content: space-between; align-items: center; }
+        .temp-badge { background: #e9ecef; border: 1px solid #ced4da; padding: 5px 12px; font-size: 16px; border-radius: 20px; color: #495057; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; background: white; }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+        th { background: #0056b3; color: white; }
+        input[type="text"], input[type="number"] { padding: 5px; text-align: center; font-weight: bold; border: 1px solid #aaa; border-radius: 4px; }
+        input[type="text"] { width: 90%; margin-top: 5px; }
+        button { padding: 8px 12px; margin: 2px; cursor: pointer; border: none; border-radius: 4px; }
+        .btn-on { background: #28a745; color: white; }
+        .btn-off { background: #dc3545; color: white; }
+        .btn-pulse { background: #ffc107; color: black; font-weight: bold;}
+        .btn-all { background: #17a2b8; color: white; font-weight: bold; margin-bottom: 10px;}
+        .btn-data { font-weight: bold; margin-bottom: 10px; margin-left: 15px; }
+        
+        #recordBtn { background: #28a745; color: white; font-size: 18px; padding: 10px 20px; font-weight: bold; margin-right: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s;}
+        #recordBtn.recording { background: #dc3545; animation: pulse-red 1.5s infinite; }
+        #recordBtn.armed { background: #ffc107; color: black; animation: pulse-yellow 1.5s infinite; }
+        
+        @keyframes pulse-red { 0% {box-shadow: 0 0 0 0 rgba(220,53,69,0.7);} 70% {box-shadow: 0 0 0 10px rgba(220,53,69,0);} 100% {box-shadow: 0 0 0 0 rgba(220,53,69,0);} }
+        @keyframes pulse-yellow { 0% {box-shadow: 0 0 0 0 rgba(255,193,7,0.7);} 70% {box-shadow: 0 0 0 10px rgba(255,193,7,0);} 100% {box-shadow: 0 0 0 0 rgba(255,193,7,0);} }
+
+        .param-box { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #0056b3; display: flex; gap: 15px; align-items: center; flex-wrap: wrap;}
+        .param-group { display: flex; flex-direction: column; align-items: center; font-size: 14px;}
+
+        .plot-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .plot { background: white; border: 1px solid #ccc; padding: 10px; width: 45%; box-sizing: border-box;}
+        canvas { width: 100%; height: 180px; }
+        
+        #helpModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal-content { background: white; margin: 10% auto; padding: 20px; width: 60%; border-radius: 8px; }
+        .close { float: right; font-size: 24px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>
+        <span>Behavioral Cage Control System <button onclick="document.getElementById('helpModal').style.display='block'">Help</button></span>
+        <span class="temp-badge" id="tempDisplay">Pico Temp: --.- °C</span>
+    </h1>
+
+    <div style="display: flex; align-items: center; background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #ccc;">
+        <button id="recordBtn" onclick="toggleRecording()">▶ START RECORDING</button>
+        
+        <label style="font-weight: bold; font-size: 16px; margin-right: 20px; cursor: pointer;">
+            <input type="checkbox" id="useTrigger" style="transform: scale(1.3); margin-right: 5px;"> 
+            Wait for Trigger (GP20)
+        </label>
+        <span style="color: #6c757d; font-size: 14px;">Set Mouse IDs below. Data automatically saves as CSV when you stop.</span>
+    </div>
+
+    <div class="param-box">
+        <h3 style="margin: 0; color: #0056b3; margin-right: 15px;">Stimulation Parameters:</h3>
+        <div class="param-group"><label>Width (ms)</label><input type="number" id="p_width" value="50" style="width: 70px;"></div>
+        <div class="param-group"><label>Freq (Hz)</label><input type="number" id="p_freq" value="10" style="width: 70px;"></div>
+        <div class="param-group"><label>Pulses / Trial</label><input type="number" id="p_num" value="10" style="width: 70px;"></div>
+        <div class="param-group"><label>Trials</label><input type="number" id="t_num" value="1" style="width: 70px;"></div>
+        <div class="param-group"><label>ITI (ms)</label><input type="number" id="p_iti" value="1000" style="width: 70px;"></div>
+        <span style="color: #6c757d; font-size: 12px; margin-left: auto;">* Applied when you click PULSE</span>
+    </div>
+
+    <div>
+        <button class="btn-all" onclick="controlAll('on')">ALL CAGES ON</button>
+        <button class="btn-all" style="background:#dc3545" onclick="controlAll('off')">ALL CAGES OFF</button>
+        <button class="btn-all" style="background:#ffc107; color:black" onclick="controlAll('pulse')">ALL CAGES PULSE</button>
+        <button class="btn-data" style="background:#0056b3; color:white;" onclick="saveCountsCSV()">💾 SAVE MANUAL COUNTS CSV</button>
+        <button class="btn-data" style="background:#6c757d; color:white;" onclick="clearCounts()">🗑️ CLEAR COUNTS</button>
+    </div>
+
+    <table>
+        <thead><tr><th>Cage Details</th><th>Output Control</th><th>DIO_1</th><th>DIO_2</th><th>DIO_3</th><th>DIO_4</th></tr></thead>
+        <tbody id="cageTable"></tbody>
+    </table>
+
+    <h2>Live Activity Monitoring (24/7 Preview)</h2>
+    <div class="plot-container" id="plots"></div>
+
+    <div id="helpModal">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('helpModal').style.display='none'">&times;</span>
+            <h2>Hardware Mapping</h2><hr>
+            <h3>External Sync</h3><ul><li><strong>External Trigger Input:</strong> GP20 (Triggers on 3.3V rising edge)</li></ul><hr>
+            <h3>Cage 1</h3><ul><li>Output: GP4</li><li>Inputs (DIO_1-4): GP0, GP1, GP2, GP3</li></ul>
+            <h3>Cage 2</h3><ul><li>Output: GP9</li><li>Inputs (DIO_1-4): GP5, GP6, GP7, GP8</li></ul>
+            <h3>Cage 3</h3><ul><li>Output: GP14</li><li>Inputs (DIO_1-4): GP10, GP11, GP12, GP13</li></ul>
+            <h3>Cage 4</h3><ul><li>Output: GP19</li><li>Inputs (DIO_1-4): GP15, GP16, GP17, GP18</li></ul>
+        </div>
+    </div>
+
+    <script>
+        const CAGES = 4;
+        const VIEW_WINDOW_MS = 6000; 
+        
+        let isRecording = false;
+        let isArmed = false;
+        let loggedEvents = {1:[], 2:[], 3:[], 4:[]}; 
+
+        let currentStates = {
+            1: [0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0], 3: [0, 0, 0, 0, 0], 4: [0, 0, 0, 0, 0]
+        };
+        let graphTimelines = { 1: [], 2: [], 3: [], 4: [] };
+
+        const tableBody = document.getElementById('cageTable');
+        const plotContainer = document.getElementById('plots');
+
+        for(let i=1; i<=CAGES; i++) {
+            let tr = document.createElement('tr');
+            let tdCage = `<td><strong>Cage ${i}</strong><br><input type="text" id="mouseId${i}" placeholder="Mouse ID"></td>`;
+            let tdOut = `<td>
+                <button class="btn-on" onclick="control(${i}, 'on')">ON</button>
+                <button class="btn-off" onclick="control(${i}, 'off')">OFF</button>
+                <button class="btn-pulse" onclick="control(${i}, 'pulse')">PULSE</button>
+            </td>`;
+            let tdInputs = '';
+            for(let j=0; j<4; j++) {
+                tdInputs += `<td><div style="font-size: 24px; font-weight: bold;" id="c${i}i${j}">0</div>
+                <select onchange="changeEdge(${i}, ${j}, this.value)"><option value="rising">Rising</option><option value="falling">Falling</option></select></td>`;
+            }
+            tr.innerHTML = tdCage + tdOut + tdInputs;
+            tableBody.appendChild(tr);
+            plotContainer.innerHTML += `<div class="plot"><h3>Cage ${i} Timeline</h3><canvas id="canvas${i}"></canvas></div>`;
+        }
+
+        async function toggleRecording() {
+            const btn = document.getElementById('recordBtn');
+            const useTrigger = document.getElementById('useTrigger').checked;
+            
+            if(!isRecording && !isArmed) {
+                let activeCages = 0;
+                for(let i=1; i<=CAGES; i++) {
+                    if(document.getElementById(`mouseId${i}`).value.trim() !== "") activeCages++;
+                }
+                if(activeCages === 0) { alert("Please enter a Mouse ID for at least one cage before starting."); return; }
+
+                await fetch('/api/clear');
+                for(let i=1; i<=CAGES; i++) {
+                    for(let j=0; j<4; j++) document.getElementById(`c${i}i${j}`).innerText = "0";
+                    currentStates[i] = [0, 0, 0, 0, 0];
+                    graphTimelines[i] = []; 
+                }
+                loggedEvents = {1:[], 2:[], 3:[], 4:[]}; 
+
+                for(let i=1; i<=CAGES; i++) document.getElementById(`mouseId${i}`).disabled = true;
+                document.getElementById('useTrigger').disabled = true;
+
+                if (useTrigger) {
+                    isArmed = true; btn.innerText = "⏳ WAITING FOR TRIGGER..."; btn.className = "armed";
+                    await fetch('/api/record?action=start&trigger=true');
+                } else {
+                    isRecording = true; btn.innerText = "⏹ STOP & SAVE DATA"; btn.className = "recording";
+                    await fetch('/api/record?action=start&trigger=false');
+                }
+            } else {
+                isRecording = false; isArmed = false;
+                await fetch('/api/record?action=stop');
+                btn.innerText = "▶ START RECORDING"; btn.className = "";
+                for(let i=1; i<=CAGES; i++) document.getElementById(`mouseId${i}`).disabled = false;
+                document.getElementById('useTrigger').disabled = false;
+                downloadEventCSVs();
+            }
+        }
+
+        function downloadEventCSVs() {
+            const now = new Date();
+            const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+            for(let i=1; i<=CAGES; i++) {
+                let mouseId = document.getElementById(`mouseId${i}`).value.trim();
+                if(mouseId !== "" && loggedEvents[i].length > 0) {
+                    let csvContent = "computerTime(ms),TrialTime(ms),Output,DIO_1,DIO_2,DIO_3,DIO_4\n" + loggedEvents[i].join("\n");
+                    let blob = new Blob([csvContent], { type: 'text/csv' });
+                    let a = document.createElement('a'); a.href = window.URL.createObjectURL(blob);
+                    a.download = `Cage${i}_${mouseId}_${ts}_Events.csv`;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                }
+            }
+        }
+
+        function getPulseParams() { return `&w=${document.getElementById('p_width').value}&f=${document.getElementById('p_freq').value}&p=${document.getElementById('p_num').value}&t=${document.getElementById('t_num').value}&i=${document.getElementById('p_iti').value}`; }
+        function control(cage, action) { fetch(`/api/control?cage=${cage}&action=${action}` + (action==='pulse'?getPulseParams():'')); }
+        function controlAll(action) { fetch(`/api/control?cage=all&action=${action}` + (action==='pulse'?getPulseParams():'')); }
+        function changeEdge(cage, inputIndex, edgeType) { fetch(`/api/edge?cage=${cage}&in=${inputIndex}&edge=${edgeType}`); }
+        function clearCounts() { if(confirm("Clear all counts?")) fetch('/api/clear'); }
+
+        async function saveCountsCSV() {
+            const res = await fetch('/api/data'); const data = await res.json();
+            const now = new Date();
+            const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+            let csv = "Cage,MouseID,DIO_1,DIO_2,DIO_3,DIO_4\n";
+            for(let i=1; i<=CAGES; i++) {
+                let id = document.getElementById(`mouseId${i}`).value.trim() || "No_ID";
+                csv += `${i},${id},${data.counts[i].join(",")}\n`;
+            }
+            let blob = new Blob([csv], { type: 'text/csv' });
+            let a = document.createElement('a'); a.href = window.URL.createObjectURL(blob);
+            a.download = `Manual_Counts_${ts}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+
+        // The chart now strictly uses the Pico's absolute internal clock (sysTime) to slide the X-axis continuously
+        function drawChart(cageId, sysTime) {
+            const canvas = document.getElementById(`canvas${cageId}`);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const timeline = graphTimelines[cageId];
+            
+            canvas.width = canvas.parentElement.clientWidth; canvas.height = 180;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const colors = ['#8854d0', '#007bff', '#28a745', '#dc3545', '#ffc107']; 
+            const channelHeight = (canvas.height - 30) / 5;
+            const labels = ["Output", "DIO_1", "DIO_2", "DIO_3", "DIO_4"];
+
+            const endTime = sysTime; 
+            const startTime = Math.max(0, endTime - VIEW_WINDOW_MS);
+            graphTimelines[cageId] = timeline.filter(pt => pt.time >= startTime - 1000);
+
+            for (let channel = 0; channel < 5; channel++) {
+                const offset = 10 + (channel * channelHeight);
+                const heightScale = channelHeight * 0.65;
+                ctx.strokeStyle = '#eef0f5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, offset + heightScale); ctx.lineTo(canvas.width, offset + heightScale); ctx.stroke();
+                ctx.fillStyle = '#6c757d'; ctx.font = '10px Arial'; ctx.fillText(labels[channel], 10, offset - 2);
+                ctx.beginPath(); ctx.strokeStyle = colors[channel]; ctx.lineWidth = 2;
+
+                let lastState = 0;
+                for (let pt of timeline) { if (pt.time <= startTime) lastState = pt.states[channel]; else break; }
+
+                let currentX = 0; let currentY = offset + heightScale - (lastState * heightScale);
+                ctx.moveTo(currentX, currentY);
+
+                timeline.forEach(pt => {
+                    if (pt.time > startTime && pt.time <= endTime) {
+                        let nextX = ((pt.time - startTime) / VIEW_WINDOW_MS) * canvas.width;
+                        let nextY = offset + heightScale - (pt.states[channel] * heightScale);
+                        ctx.lineTo(nextX, currentY); ctx.lineTo(nextX, nextY);
+                        currentX = nextX; currentY = nextY;
+                    }
+                });
+                ctx.lineTo(canvas.width, currentY); ctx.stroke();
+            }
+        }
+
+        setInterval(async () => {
+            try {
+                const res = await fetch('/api/data'); 
+                const data = await res.json();
+                if (data.temp !== undefined) document.getElementById('tempDisplay').innerText = `Pico Temp: ${Number(data.temp).toFixed(1)} °C`;
+
+                if (isArmed && data.is_recording) {
+                    isArmed = false; isRecording = true;
+                    document.getElementById('recordBtn').innerText = "⏹ STOP & SAVE DATA"; document.getElementById('recordBtn').className = "recording";
+                }
+
+                if (data.events && data.events.length > 0) {
+                    const compTime = Date.now(); 
+                    data.events.forEach(ev => {
+                        let [c_num, sig_name, stateRaw, ev_ticks] = ev;
+                        let state = Number(stateRaw);
+                        
+                        // 1. Update State Memory
+                        if (sig_name === "Output") currentStates[c_num][0] = state;
+                        else if (sig_name.startsWith("DIO_")) currentStates[c_num][parseInt(sig_name.split("_").pop())] = state;
+                        
+                        // 2. ALWAYS Log for Plotting (Preview Mode uses absolute time)
+                        graphTimelines[c_num].push({ time: ev_ticks, states: [...currentStates[c_num]] });
+
+                        // 3. ONLY save to CSV if recording is active AND the event happened after recording started
+                        if (data.is_recording && ev_ticks >= data.rec_start) {
+                            let trialTime = ev_ticks - data.rec_start;
+                            let [outVal, d1, d2, d3, d4] = currentStates[c_num];
+                            loggedEvents[c_num].push(`${compTime},${trialTime},${outVal},${d1},${d2},${d3},${d4}`);
+                        }
+                    });
+                }
+
+                for(let i=1; i<=CAGES; i++) {
+                    for(let j=0; j<4; j++) document.getElementById(`c${i}i${j}`).innerText = data.counts[i][j];
+                    drawChart(i, data.sys_time); // Feed the absolute Pico clock into the chart X-axis
+                }
+            } catch (err) {}
+        }, 100); 
+    </script>
+</body>
+</html>
